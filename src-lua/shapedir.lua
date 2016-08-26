@@ -8,7 +8,7 @@ local lfs = require("lfs")
 
 ------------------------------------------------------------------------------
 
-local function files(dir_name, file_pattern)
+local function files(dir_name, file_pattern, projection)
   local function _files()
     for filename in lfs.dir(dir_name) do
       if filename:match("%.shp$") and
@@ -17,7 +17,7 @@ local function files(dir_name, file_pattern)
         local sf = io.open(dir_name.."/"..filename, "rb")
         local df = io.open(dir_name.."/"..name..".dbf", "rb")
 
-        local sf, xmin, ymin, xmax, ymax = shapefile.use(sf)
+        local sf, xmin, ymin, xmax, ymax = shapefile.use(sf, projection)
         local df = dbf.use(df)
 
         local function _shapes()
@@ -47,6 +47,5 @@ end
 ------------------------------------------------------------------------------
 
 return { files=files }
-
 
 ------------------------------------------------------------------------------

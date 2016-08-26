@@ -60,12 +60,30 @@ local function read_header(f)
 end
 
 
+-- Read a point with a projection
+local function read_point(f, projection)
+  local x, y = unpack(f, 16, "<dd")
+  if projection then x, y = projection(y, x) end
+  return x, y
+end
+
+
+local function read_bounds(f, projection)
+  local xmin, ymin, xmax, ymax = unpack(f, 32, "<dddd")
+  if projection then
+    xmin, ymin = projection(ymin, xmin)
+    xmax, ymax = projection(ymax, xmax)
+  end
+  return xmin, ymin, xmax, ymax
+end
+
+
 -- Polyline and polygon from pages 7 & 8
-local function polygon_or_polyline(f, shape_type)
+local function polygon_or_polyline(f, projection, shape_type)
   -- 4 doubles defining xy bounding box
   local bounds = {}
   bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax =
-    unpack(f, 32, "<dddd")
+    read_bounds(f, projection)
 
   local part_count, point_count = unpack(f, 8, "<ii")
   local part_starts = {}
@@ -82,8 +100,7 @@ local function polygon_or_polyline(f, shape_type)
       part = {}
       parts[part_index] = part
     end
-    local x, y = unpack(f, 16, "<dd")
-    part[#part+1] = { x, y }
+    part[#part+1] = { read_point(f, projection) }
   end
 
   return { type = shape_type, bounds = bounds, parts = parts }, point_count
@@ -91,8 +108,8 @@ end
 
 
 -- Polylinem and polygonm from pages 17-20
-local function polygonm_or_polylinem(f, shape_type)
-  local shape = polygon_or_polyline(f, shape_type)
+local function polygonm_or_polylinem(f, projection, shape_type)
+  local shape = polygon_or_polyline(f, projection, shape_type)
 
   -- 2 doubles defining mmin and mmax
   shape.bounds.mmin, shape.bounds.mmax = unpack(f, 16, "<dd")
@@ -108,8 +125,8 @@ end
 
 
 -- Polylinez and polygonz from pages 17-20
-local function polygonz_or_polylinez(f, shape_type, record_length_bytes)
-  local shape, point_count = polygon_or_polyline(f, shape_type)
+local function polygonz_or_polylinez(f, projection, shape_type, record_length_bytes)
+  local shape, point_count = polygon_or_polyline(f, projection, shape_type)
 
   -- 2 doubles defining zmin and zmax
   shape.bounds.zmin, shape.bounds.zmax = unpack(f, 16, "<dd")
@@ -143,22 +160,21 @@ end
 local readers =
 {
   -- null from page 6
-  null = function(f) return "null shape" end,
+  null = function() return "null shape" end,
 
   -- Point from page 6
-  point = function(f)
-    local x, y = unpack(f, 16, "<dd")
+  point = function(f, projection)
+    local x, y = read_point(f, projection)
     return { type = "point", bounds = { x, y, x, y }, points = { x, y } }
   end,
 
   -- multipoint from page 7
-  multipoint = function(f)
-    local xmin, ymin, xmax, ymax = unpack(f, 32, "<dddd")
+  multipoint = function(f, projection)
+    local xmin, ymin, xmax, ymax = read_bounds(f, projection)
     local point_count = unpack(f, 4, "<i")
     local points = {}
     for i = 1, point_count do
-      local _, x, y = unpack(f, 16, "<dd")
-      points[i] = { x, y }
+      points[i] = read_point(f, projection)
     end
     return { type = "multipoint", bounds = { xmin, ymin, xmax, ymax }, points = points }
   end,
@@ -172,13 +188,13 @@ local readers =
 }
 
 
-local function read_shape(f)
+local function read_shape(f, projection)
   local ok, record, record_length_words, shape_index = pcall(unpack, f, 12, ">ii<i")
   if not ok then return end
   shape_type = shape_types[shape_index]
   assert(shape_type, "This file does not appear to be a shapefile: unknown shape type: "..tonumber(shape_index))
   assert(readers[shape_type], "No reader for shape type '"..shape_type.."'")
-  return readers[shape_type](f, shape_type, record_length_words*2)
+  return readers[shape_type](f, projection, shape_type, record_length_words*2)
 end
 
 
@@ -187,7 +203,7 @@ end
 local file_mt =
 {
   read = function(t)
-      return read_shape(t.file)
+      return read_shape(t.file, t.projection)
     end,
   lines = function(t)
       return function() return t:read() end
@@ -199,16 +215,16 @@ local file_mt =
 file_mt.__index = file_mt
 
 
-local function use(file)
+local function use(file, projection)
   local xmin, ymin, xmax, ymax = read_header(file)
-  return setmetatable({file=file}, file_mt), xmin, ymin, xmax, ymax
+  return setmetatable({file=file, projection=projection}, file_mt), xmin, ymin, xmax, ymax
 end
 
 
-local function open(filename)
+local function open(filename, projection)
   local file, message = io.open(filename, "r")
   if not file then return nil, message end
-  return use(file)
+  return use(file, projection)
 end
 
 
@@ -218,4 +234,3 @@ return { use = use, open = open }
 
 
 ------------------------------------------------------------------------------
-
