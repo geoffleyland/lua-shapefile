@@ -61,10 +61,21 @@ end
 
 
 -- Read a point with a projection
-local function read_point(f, projection)
+local function read_point(f, projection, bounds)
   local x, y = unpack(f, 16, "<dd")
   if projection then x, y = projection(y, x) end
+  if bounds then
+    bounds.min[1] = math.min(x, bounds.min[1] or math.huge)
+    bounds.min[2] = math.min(y, bounds.min[2] or math.huge)
+    bounds.max[1] = math.max(x, bounds.max[1] or -math.huge)
+    bounds.max[2] = math.max(y, bounds.max[2] or -math.huge)
+  end
   return x, y
+end
+
+
+local function skip_bounds(f)
+  unpack(f, 32, "<dddd")
 end
 
 
@@ -81,9 +92,11 @@ end
 -- Polyline and polygon from pages 7 & 8
 local function polygon_or_polyline(f, projection, shape_type)
   -- 4 doubles defining xy bounding box
-  local bounds = {}
-  bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax =
-    read_bounds(f, projection)
+  local bounds = {min = {}, max = {}}
+  -- We'll skip reading the bounds because they don't work if there's a projection
+  skip_bounds(f)
+--  bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax =
+--    read_bounds(f, projection)
 
   local part_count, point_count = unpack(f, 8, "<ii")
   local part_starts = {}
@@ -100,7 +113,7 @@ local function polygon_or_polyline(f, projection, shape_type)
       part = {}
       parts[part_index] = part
     end
-    part[#part+1] = { read_point(f, projection) }
+    part[#part+1] = { read_point(f, projection, bounds) }
   end
 
   return { type = shape_type, bounds = bounds, parts = parts }, point_count
@@ -165,18 +178,19 @@ local readers =
   -- Point from page 6
   point = function(f, projection)
     local x, y = read_point(f, projection)
-    return { type = "point", bounds = { x, y, x, y }, points = { x, y } }
+    return { type = "point", bounds = { min = {x, y}, max = {x, y} }, points = { x, y } }
   end,
 
   -- multipoint from page 7
   multipoint = function(f, projection)
-    local xmin, ymin, xmax, ymax = read_bounds(f, projection)
+    skip_bounds(f)
+    local bounds = { min = {}, max = {}}
     local point_count = unpack(f, 4, "<i")
     local points = {}
     for i = 1, point_count do
-      points[i] = read_point(f, projection)
+      points[i] = read_point(f, projection, bounds)
     end
-    return { type = "multipoint", bounds = { xmin, ymin, xmax, ymax }, points = points }
+    return { type = "multipoint", bounds, points = points }
   end,
 
   polygon = polygon_or_polyline,
