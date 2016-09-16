@@ -63,7 +63,7 @@ end
 -- Read a point with a projection
 local function read_point(f, projection, bounds)
   local x, y = unpack(f, 16, "<dd")
-  if projection then x, y = projection(y, x) end
+  if projection then x, y = projection(x, y) end
   if bounds then
     bounds.min[1] = math.min(x, bounds.min[1] or math.huge)
     bounds.min[2] = math.min(y, bounds.min[2] or math.huge)
@@ -82,8 +82,8 @@ end
 local function read_bounds(f, projection)
   local xmin, ymin, xmax, ymax = unpack(f, 32, "<dddd")
   if projection then
-    xmin, ymin = projection(ymin, xmin)
-    xmax, ymax = projection(ymax, xmax)
+    xmin, ymin = projection(xmin, ymin)
+    xmax, ymax = projection(xmax, ymax)
   end
   return xmin, ymin, xmax, ymax
 end
